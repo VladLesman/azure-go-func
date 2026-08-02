@@ -1,0 +1,45 @@
+name: Cloud Native CI/CD (Go + Terraform + Ansible)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build, Provision & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.7.0'
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform Init & Apply
+        run: |
+          cd infra
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Install Ansible Collections
+        run: |
+          ansible-galaxy collection install community.general
+
+      - name: Run Ansible Deployment Playbook
+        run: |
+          cd ansible
+          ansible-playbook deploy.yml

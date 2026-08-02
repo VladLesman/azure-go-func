@@ -1,0 +1,74 @@
+---
+- name: Production Deployment Pipeline for Azure Go Serverless
+  hosts: localhost
+  connection: local
+  vars:
+    src_dir: "../src"
+    build_dir: "../build"
+    zip_file: "../build/app.zip"
+    infra_dir: "../infra"
+
+  tasks:
+    # 1. Чтение Outputs из Terraform
+    - name: Fetch Infrastructure outputs from Terraform
+      community.general.terraform:
+        project_path: "{{ infra_dir }}"
+      register: tf_out
+
+    - name: Set facts from Terraform
+      ansible.builtin.set_fact:
+        resource_group: "{{ tf_out.outputs.resource_group_name.value }}"
+        function_app_name: "{{ tf_out.outputs.function_app_name.value }}"
+
+    # 2. Подготовка папки сборки
+    - name: Ensure artifact build directory exists
+      ansible.builtin.file:
+        path: "{{ build_dir }}"
+        state: directory
+        mode: '0755'
+
+    # 3. Сборка Linux-бинарника Go
+    - name: Compile Go binary for Linux Architecture (CGO_ENABLED=0)
+      ansible.builtin.command:
+        cmd: go build -o main main.go
+        chdir: "{{ src_dir }}"
+      environment:
+        GOOS: "linux"
+        GOARCH: "amd64"
+        CGO_ENABLED: "0"
+
+    # 4. Упаковка артефактов деплоя
+    - name: Create Zip Deployment package
+      community.general.archive:
+        path:
+          - "{{ src_dir }}/main"
+          - "{{ src_dir }}/host.json"
+          - "{{ src_dir }}/hello"
+        dest: "{{ zip_file }}"
+        format: zip
+
+    # 5. Деплой через Azure CLI
+    - name: Deploy package to Azure Function App
+      ansible.builtin.command: >
+        az webapp deploy
+        --resource-group {{ resource_group }}
+        --name {{ function_app_name }}
+        --src-path {{ zip_file }}
+        --type zip
+      register: deploy_output
+
+    # 6. E2E / Smoke Testing
+    - name: Validate Deployment via HTTP Smoke Test
+      ansible.builtin.uri:
+        url: "https://{{ function_app_name }}.azurewebsites.net/api/hello"
+        method: GET
+        status_code: 200
+        return_content: yes
+      register: http_response
+      retries: 6
+      delay: 10
+      until: http_response.status == 200
+
+    - name: Print Output Response
+      ansible.builtin.debug:
+        msg: "Endpoint verified successfully. Payload: {{ http_response.json }}"

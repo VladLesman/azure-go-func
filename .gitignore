@@ -1,0 +1,16 @@
+# Terraform local state and modules
+**/infra/.terraform/
+**/infra/.terraform.lock.hcl
+**/infra/*.tfstate
+**/infra/*.tfstate.backup
+
+# Build artifacts and binaries
+**/build/
+**/src/main
+**/src/main.exe
+**/ansible/tf_outputs.json
+
+# IDE & OS
+.idea/
+.vscode/
+*.exe
