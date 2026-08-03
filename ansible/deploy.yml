@@ -49,12 +49,12 @@
 
     # 5. Деплой через Azure CLI
     - name: Deploy package to Azure Function App
-      ansible.builtin.command: >
-        az webapp deploy
-        --resource-group {{ resource_group }}
-        --name {{ function_app_name }}
-        --src-path {{ zip_file }}
-        --type zip
+      ansible.builtin.command: 
+        cmd: >
+          az functionapp deployment source config-zip
+          --resource-group rg-gofunc-finops-dev-001
+          --name func-gofunc-z3zis2
+          --src "../build/app.zip"
       register: deploy_output
 
     # 6. E2E / Smoke Testing
