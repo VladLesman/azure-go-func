@@ -77,16 +77,19 @@ resource "azurerm_linux_function_app" "func" {
 
   site_config {
     always_on = false
-	application_stack {
+    application_stack {
       use_custom_runtime = true
     }
   }
 
+  # NOTE: On Linux Consumption (Y1), WEBSITE_RUN_FROM_PACKAGE=1 is NOT supported.
+  # Zip deploy (az functionapp deployment source config-zip) uploads the package
+  # to blob storage and sets WEBSITE_RUN_FROM_PACKAGE to a SAS URL automatically.
   app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME" = "custom"
-    "ENVIRONMENT"              = var.environment
-	"WEBSITE_RUN_FROM_PACKAGE" = "1"
-	"ENABLE_ORYX_BUILD"        = "false"
+    "FUNCTIONS_EXTENSION_VERSION"    = "~4"
+    "FUNCTIONS_WORKER_RUNTIME"       = "custom"
+    "ENVIRONMENT"                    = var.environment
+    "ENABLE_ORYX_BUILD"              = "false"
     "SCM_DO_BUILD_DURING_DEPLOYMENT" = "false"
   }
 

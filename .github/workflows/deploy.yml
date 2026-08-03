@@ -28,6 +28,8 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: '1.7.0'
+          # Wrapper breaks ansible terraform module / raw terraform output parsing
+          terraform_wrapper: false
 
       - name: Azure Login
         uses: azure/login@v2
@@ -35,16 +37,17 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Terraform Init & Apply
+        working-directory: infra
         run: |
-          cd infra
           terraform init
           terraform apply -auto-approve
 
-      - name: Install Ansible Collections
+      - name: Install zip and Ansible collections
         run: |
+          sudo apt-get update
+          sudo apt-get install -y zip
           ansible-galaxy collection install community.general
 
       - name: Run Ansible Deployment Playbook
-        run: |
-          cd ansible
-          ansible-playbook deploy.yml
+        working-directory: ansible
+        run: ansible-playbook deploy.yml
