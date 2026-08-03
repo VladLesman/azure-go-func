@@ -86,6 +86,8 @@ resource "azurerm_linux_function_app" "func" {
     "FUNCTIONS_WORKER_RUNTIME" = "custom"
     "ENVIRONMENT"              = var.environment
 	"WEBSITE_RUN_FROM_PACKAGE" = "1"
+	"ENABLE_ORYX_BUILD"        = "false"
+    "SCM_DO_BUILD_DURING_DEPLOYMENT" = "false"
   }
 
   tags = azurerm_resource_group.rg.tags
