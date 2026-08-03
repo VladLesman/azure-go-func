@@ -8,6 +8,8 @@
     package_dir: "{{ playbook_dir }}/../build/package"
     zip_file: "{{ playbook_dir }}/../build/app.zip"
     infra_dir: "{{ playbook_dir }}/../infra"
+    # Blob name changes each run so Function App picks up a new package URL
+    package_blob_name: "app-{{ ansible_date_time.iso8601_basic_short }}.zip"
 
   tasks:
     # 1. Чтение Outputs из Terraform
@@ -22,6 +24,9 @@
       ansible.builtin.set_fact:
         resource_group: "{{ tf_out.outputs.resource_group_name.value }}"
         function_app_name: "{{ tf_out.outputs.function_app_name.value }}"
+        storage_account_name: "{{ tf_out.outputs.storage_account_name.value }}"
+        storage_account_key: "{{ tf_out.outputs.storage_account_primary_access_key.value }}"
+        deployments_container: "{{ tf_out.outputs.deployments_container_name.value }}"
 
     # 2. Подготовка папки сборки
     - name: Ensure artifact directories exist
@@ -33,6 +38,17 @@
         - "{{ build_dir }}"
         - "{{ package_dir }}"
 
+    - name: Clean previous package directory contents
+      ansible.builtin.file:
+        path: "{{ package_dir }}"
+        state: absent
+
+    - name: Recreate package directory
+      ansible.builtin.file:
+        path: "{{ package_dir }}"
+        state: directory
+        mode: "0755"
+
     # 3. Сборка Linux-бинарника Go
     - name: Compile Go binary for Linux Architecture (CGO_ENABLED=0)
       ansible.builtin.command:
@@ -43,7 +59,6 @@
         GOARCH: "amd64"
         CGO_ENABLED: "0"
 
-    # Custom handler must be executable inside the zip (Linux mount is read-only)
     - name: Ensure custom handler binary is executable
       ansible.builtin.file:
         path: "{{ package_dir }}/main"
@@ -61,26 +76,89 @@
         dest: "{{ package_dir }}/"
         mode: "0644"
 
-    # 4. Упаковка артефактов деплоя (файлы в корне zip: main, host.json, hello/)
+    # 4. Упаковка (корень zip: main, host.json, hello/)
     - name: Create Zip Deployment package
       ansible.builtin.command:
         cmd: zip -r "{{ zip_file }}" .
         chdir: "{{ package_dir }}"
 
-    # 5. Деплой через Azure CLI (используем outputs Terraform, не хардкод)
-    - name: Deploy package to Azure Function App
+    # 5. Linux Consumption: upload zip to blob + set WEBSITE_RUN_FROM_PACKAGE=<URL>
+    #    az functionapp deployment source config-zip often returns 400 Bad Request on Y1
+    #    when runtime detection fails — blob URL deploy is the supported path.
+    - name: Upload package to Azure Blob Storage
       ansible.builtin.command:
-        cmd: >
-          az functionapp deployment source config-zip
-          --resource-group {{ resource_group }}
-          --name {{ function_app_name }}
-          --src {{ zip_file }}
-          --timeout 600
+        argv:
+          - az
+          - storage
+          - blob
+          - upload
+          - --account-name
+          - "{{ storage_account_name }}"
+          - --account-key
+          - "{{ storage_account_key }}"
+          - --container-name
+          - "{{ deployments_container }}"
+          - --name
+          - "{{ package_blob_name }}"
+          - --file
+          - "{{ zip_file }}"
+          - --overwrite
+          - "true"
+      register: blob_upload
+
+    - name: Generate read SAS URL for package (1 year)
+      ansible.builtin.command:
+        argv:
+          - az
+          - storage
+          - blob
+          - generate-sas
+          - --account-name
+          - "{{ storage_account_name }}"
+          - --account-key
+          - "{{ storage_account_key }}"
+          - --container-name
+          - "{{ deployments_container }}"
+          - --name
+          - "{{ package_blob_name }}"
+          - --permissions
+          - r
+          - --https-only
+          - --expiry
+          - "{{ '%Y-%m-%dT%H:%MZ' | strftime((ansible_date_time.epoch | int) + 31536000) }}"
+          - --full-uri
+      register: package_sas
+
+    - name: Set WEBSITE_RUN_FROM_PACKAGE to blob SAS URL
+      ansible.builtin.command:
+        argv:
+          - az
+          - functionapp
+          - config
+          - appsettings
+          - set
+          - --resource-group
+          - "{{ resource_group }}"
+          - --name
+          - "{{ function_app_name }}"
+          - --settings
+          - "WEBSITE_RUN_FROM_PACKAGE={{ package_sas.stdout | trim }}"
       register: deploy_output
 
-    - name: Show deploy result
+    - name: Restart Function App to mount new package
+      ansible.builtin.command:
+        argv:
+          - az
+          - functionapp
+          - restart
+          - --resource-group
+          - "{{ resource_group }}"
+          - --name
+          - "{{ function_app_name }}"
+
+    - name: Show deploy package URL host (no SAS secrets)
       ansible.builtin.debug:
-        var: deploy_output.stdout
+        msg: "Deployed blob {{ package_blob_name }} to {{ function_app_name }}"
 
     # 6. E2E / Smoke Testing
     - name: Validate Deployment via HTTP Smoke Test
@@ -90,7 +168,7 @@
         status_code: 200
         return_content: true
       register: http_response
-      retries: 12
+      retries: 18
       delay: 15
       until: http_response.status == 200
 

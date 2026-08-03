@@ -31,8 +31,8 @@ func helloHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Azure Functions передает порт, который мы ДОЛЖНЫ слушать, через переменную окружения FUNCS_CUSTOMHANDLER_PORT
-	customHandlerPort, exists := os.LookupEnv("FUNCS_CUSTOMHANDLER_PORT")
+	// Azure Functions передаёт порт через FUNCTIONS_CUSTOMHANDLER_PORT
+	customHandlerPort, exists := os.LookupEnv("FUNCTIONS_CUSTOMHANDLER_PORT")
 	if !exists {
 		customHandlerPort = "8080" // Дефолтный порт для локальной отладки
 	}

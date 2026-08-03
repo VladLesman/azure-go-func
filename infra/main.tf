@@ -65,6 +65,13 @@ resource "azurerm_service_plan" "asp" {
   tags = azurerm_resource_group.rg.tags
 }
 
+# Container for deployment packages (Linux Consumption needs package URL, not config-zip)
+resource "azurerm_storage_container" "deployments" {
+  name                  = "deployments"
+  storage_account_name  = azurerm_storage_account.sa.name
+  container_access_type = "private"
+}
+
 # Function App
 resource "azurerm_linux_function_app" "func" {
   name                = "func-${var.project_name}-${random_string.suffix.result}"
@@ -75,16 +82,17 @@ resource "azurerm_linux_function_app" "func" {
   storage_account_access_key = azurerm_storage_account.sa.primary_access_key
   service_plan_id            = azurerm_service_plan.asp.id
 
+  # MS docs: for custom handlers select .NET stack; worker runtime stays "custom".
+  # Empty linuxFxVersion makes az CLI fail zip deploy with "Could not detect runtime".
   site_config {
     always_on = false
     application_stack {
-      use_custom_runtime = true
+      dotnet_version = "8.0"
     }
   }
 
-  # NOTE: On Linux Consumption (Y1), WEBSITE_RUN_FROM_PACKAGE=1 is NOT supported.
-  # Zip deploy (az functionapp deployment source config-zip) uploads the package
-  # to blob storage and sets WEBSITE_RUN_FROM_PACKAGE to a SAS URL automatically.
+  # Linux Consumption (Y1): WEBSITE_RUN_FROM_PACKAGE must be a blob URL (set by Ansible).
+  # Do NOT set it to "1" — that value is not supported on Linux Y1.
   app_settings = {
     "FUNCTIONS_EXTENSION_VERSION"    = "~4"
     "FUNCTIONS_WORKER_RUNTIME"       = "custom"
@@ -94,6 +102,12 @@ resource "azurerm_linux_function_app" "func" {
   }
 
   tags = azurerm_resource_group.rg.tags
+
+  lifecycle {
+    ignore_changes = [
+      app_settings["WEBSITE_RUN_FROM_PACKAGE"],
+    ]
+  }
 }
 
 # FinOps Budget
