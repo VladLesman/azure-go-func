@@ -9,7 +9,7 @@
     zip_file: "{{ playbook_dir }}/../build/app.zip"
     infra_dir: "{{ playbook_dir }}/../infra"
     # Blob name changes each run so Function App picks up a new package URL
-    package_blob_name: "app-{{ ansible_date_time.iso8601_basic_short }}.zip"
+    package_blob_name: "app-{{ ansible_facts['date_time']['iso8601_basic_short'] }}.zip"
 
   tasks:
     # 1. Чтение Outputs из Terraform
@@ -125,9 +125,15 @@
           - r
           - --https-only
           - --expiry
-          - "{{ '%Y-%m-%dT%H:%MZ' | strftime((ansible_date_time.epoch | int) + 31536000) }}"
+          - "{{ '%Y-%m-%dT%H:%MZ' | strftime((ansible_facts['date_time']['epoch'] | int) + 31536000) }}"
           - --full-uri
+          - --output
+          - tsv
       register: package_sas
+
+    - name: Set package URL fact (strip accidental quotes)
+      ansible.builtin.set_fact:
+        package_url: "{{ package_sas.stdout | trim | regex_replace('^\"|\"$', '') }}"
 
     - name: Set WEBSITE_RUN_FROM_PACKAGE to blob SAS URL
       ansible.builtin.command:
@@ -142,7 +148,7 @@
           - --name
           - "{{ function_app_name }}"
           - --settings
-          - "WEBSITE_RUN_FROM_PACKAGE={{ package_sas.stdout | trim }}"
+          - "WEBSITE_RUN_FROM_PACKAGE={{ package_url }}"
       register: deploy_output
 
     - name: Restart Function App to mount new package
