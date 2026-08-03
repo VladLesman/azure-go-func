@@ -51,11 +51,11 @@
     - name: Deploy package to Azure Function App
       ansible.builtin.command: 
         cmd: >
-          az rest
-          --method post
-          --uri "https://func-gofunc-z3zis2.scm.azurewebsites.net/api/zipdeploy"
-          --headers "Content-Type=application/zip"
-          --body "@../build/app.zip"
+          az functionapp deployment source config-zip
+          --resource-group rg-gofunc-finops-dev-001
+          --name func-gofunc-z3zis2
+          --src "../build/app.zip"
+          --build-remote false
       register: deploy_output
 
     # 6. E2E / Smoke Testing
