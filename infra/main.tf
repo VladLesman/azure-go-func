@@ -77,11 +77,15 @@ resource "azurerm_linux_function_app" "func" {
 
   site_config {
     always_on = false
+	application_stack {
+      use_custom_runtime = true
+    }
   }
 
   app_settings = {
     "FUNCTIONS_WORKER_RUNTIME" = "custom"
     "ENVIRONMENT"              = var.environment
+	"WEBSITE_RUN_FROM_PACKAGE" = "1"
   }
 
   tags = azurerm_resource_group.rg.tags
